@@ -1,0 +1,40 @@
+{
+  "name": "apollo-prisma",
+  "version": "0.0.1-alpha2",
+  "description": "",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "jest --coverage",
+    "build": "rimraf ./lib && npx tsc",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "lint": "eslint src/**/*.ts"
+  },
+  "author": "Luc Momal",
+  "license": "MIT",
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run format && npm run lint && npm test"
+    }
+  },
+  "dependencies": {
+    "graphql": "^15.0.0",
+    "graphql-info-parser": "0.0.1-alpha",
+    "graphql-tools": "^4.0.7"
+  },
+  "devDependencies": {
+    "@types/jest": "^25.2.1",
+    "@typescript-eslint/eslint-plugin": "^2.22.0",
+    "@typescript-eslint/parser": "^2.22.0",
+    "eslint": "^6.8.0",
+    "eslint-config-prettier": "^6.10.0",
+    "eslint-plugin-prettier": "^3.1.2",
+    "husky": "^4.2.5",
+    "jest": "^25.3.0",
+    "prettier": "^1.19.1",
+    "rimraf": "^3.0.2",
+    "ts-jest": "^25.3.1",
+    "ts-node": "^8.6.2",
+    "ts-node-dev": "^1.0.0-pre.44",
+    "typescript": "^3.8.3"
+  }
+}
