@@ -9,9 +9,6 @@ describe('operations', () => {
     typeDefs: `
           ${apolloPrisma.directivesTypeDefs}
 
-          directive @model(name: String) on OBJECT
-          directive @field(name: String) on FIELD_DEFINITION
-
           type User @model {
             firstName: String @field
           }

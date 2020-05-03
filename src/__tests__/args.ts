@@ -10,8 +10,7 @@ describe('Prisma-gql', () => {
     infoSpy,
     typeDefs: `
         scalar DateTime
-        directive @model(name: String) on OBJECT
-        directive @field(name: String) on FIELD_DEFINITION
+        ${apolloPrisma.directivesTypeDefs}
 
         type User @model {
           verif(where: String, after: String, before: String, first: String, last: String, orderBy: String, skip: String, data: String): Verif @field

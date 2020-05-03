@@ -9,9 +9,6 @@ describe('operations', () => {
     typeDefs: `
           ${apolloPrisma.directivesTypeDefs}
 
-          directive @model(name: String) on OBJECT
-          directive @field(name: String) on FIELD_DEFINITION
-
           type User @model {
             firstName: String @field
           }
@@ -21,10 +18,10 @@ describe('operations', () => {
           }
 
           type Query {
-            create(data: DataInput): User @create
-            update(id: Int, data: DataInput): User @update
-            delete(id: Int): User @delete
-            findOne(id: Int): User @findOne
+            create(data: DataInput): User! @create
+            update(id: Int, data: DataInput): User! @update
+            delete(id: Int): User! @delete
+            findOne(id: Int): User! @findOne
           }
       `,
     resolvers: {

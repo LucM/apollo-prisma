@@ -1,6 +1,15 @@
 import { infoParser, IInfoField, IInfoNode, IInfoArgs } from 'graphql-info-parser';
-import { GraphQLResolveInfo, GraphQLField } from 'graphql';
+import { GraphQLResolveInfo, GraphQLField, defaultFieldResolver } from 'graphql';
 import { SchemaDirectiveVisitor } from 'graphql-tools';
+
+const toCamel = (s: string) => {
+  return s.replace(/([-_][a-z])/gi, $1 => {
+    return $1
+      .toUpperCase()
+      .replace('-', '')
+      .replace('_', '');
+  });
+};
 
 export interface ISelect {
   [key: string]: true & ISelect;
@@ -32,7 +41,7 @@ const args = [
   Args.update,
 ];
 
-function pickArgs(infoArgs: IInfoArgs, selectedArgs: Args[] = []) {
+function pickArgs(infoArgs: IInfoArgs, selectedArgs: Args[] = []): { [key: string]: any } {
   return selectedArgs
     .filter(arg => infoArgs[arg])
     .reduce((acc, arg) => {
@@ -43,23 +52,75 @@ function pickArgs(infoArgs: IInfoArgs, selectedArgs: Args[] = []) {
     }, {});
 }
 
-function checkArgs(operationArgs: IInfoArgs, checkArgs: Args[]) {
-  //..
+const whereOperator = [
+  'not_ends_with',
+  'not_contains',
+  'starts_with',
+  'ends_with',
+  'contains',
+  'not_in',
+  'not',
+  'gte',
+  'lte',
+  'lt',
+  'in',
+  'gt',
+];
+// where: { email_starts_with, email_ends_with } => where: { email: { startsWith, endsWith }}
+export function formatWhere(obj: { [key: string]: any }) {
+  return Object.entries(obj).reduce((acc: { [key: string]: any }, [key, value]) => {
+    for (const i in whereOperator) {
+      const operator = whereOperator[i];
+      const regex = new RegExp(`^.*_${operator}$`);
+      if (regex.test(key)) {
+        const fieldKey = key.substr(0, key.length - operator.length - 1);
+        return {
+          ...acc,
+          [fieldKey]: {
+            ...acc[fieldKey],
+            [toCamel(operator)]: value,
+          },
+        };
+      }
+    }
+    return {
+      ...acc,
+      [key]: value,
+    };
+  }, {});
+}
+
+export function formatOrderBy(key: any) {
+  if (typeof key === 'string') {
+    if (/^.*_ASC$/i.test(key)) {
+      return { [key.substr(0, key.length - 4)]: 'asc' };
+    }
+    if (/^.*_DESC$/i.test(key)) {
+      return { [key.substr(0, key.length - 5)]: 'desc' };
+    }
+  }
+  return key;
 }
 
 function formatFields(fields: IInfoField[]): ISelect {
   return fields
     .filter(field => field.directivesField.field)
     .reduce((acc, field) => {
-      const { name: key = field.name } = field.directivesField.field;
+      const { name: key = field.name, select } = field.directivesField.field;
       return {
         ...acc,
-        [key as string]: field.fields
-          ? {
-              select: formatFields(field.fields),
-              ...args.filter(key => field.args[key]).reduce((acc, key) => ({ ...acc, [key]: field.args[key] }), {}),
-            }
-          : true,
+        ...(select
+          ? select.reduce((acc: { [key: string]: boolean }, f: string) => ({ ...acc, [f]: true }), {})
+          : {
+              [key as string]: field.fields
+                ? {
+                    select: formatFields(field.fields),
+                    ...args
+                      .filter(key => field.args[key])
+                      .reduce((acc, key) => ({ ...acc, [key]: field.args[key] }), {}),
+                  }
+                : true,
+            }),
       };
     }, {});
 }
@@ -76,20 +137,6 @@ export interface IPrismaQuery {
   [key: string]: IPrismaSelect;
 }
 
-interface IApolloPrismaClient {
-  [key: string]: {
-    findOne: any;
-    findMany: any;
-    count: any;
-    create: any;
-    update: any;
-    updateMany: any;
-    upsert: any;
-    delete: any;
-    deleteMany: any;
-  };
-}
-
 const ComputeDirective = (name: string) =>
   class extends SchemaDirectiveVisitor {
     visitFieldDefinition(field: GraphQLField<any, any>) {
@@ -97,13 +144,31 @@ const ComputeDirective = (name: string) =>
         if (!ctx.apolloPrisma) {
           throw new Error('apolloPrisma must be placed into context');
         }
-
         return ctx.apolloPrisma[name](info);
       };
     }
   };
 
+class FieldDirective extends SchemaDirectiveVisitor {
+  visitFieldDefinition(field: GraphQLField<any, any>) {
+    const { name } = this.args;
+    if (!name) {
+      return;
+    }
+    const { resolve = defaultFieldResolver } = field;
+    field.resolve = (parent, args, ctx, info) => {
+      const newParent = {
+        ...parent,
+        [field.name]: parent[name],
+      };
+      return resolve(newParent, args, ctx, info);
+    };
+  }
+}
+
 export const directivesTypeDefs = `
+  directive @model(name: String) on OBJECT
+  directive @field(name: String, select: [String]) on FIELD_DEFINITION
   directive @create on FIELD_DEFINITION
   directive @update on FIELD_DEFINITION
   directive @delete on FIELD_DEFINITION
@@ -117,52 +182,83 @@ export const directivesTypeDefs = `
 export class ApolloPrisma {
   prismaClient: any;
   directivesTypeDefs: string;
+  log: boolean;
 
-  constructor(prismaClient: any) {
+  constructor(prismaClient: any, log: boolean = false) {
+    this.log = log;
     this.prismaClient = prismaClient;
     this.directivesTypeDefs = directivesTypeDefs;
   }
 
   get directives() {
-    return ['create', 'delete', 'update', 'findOne', 'findMany', 'deleteMany', 'updateMany', 'count', 'count'].reduce(
-      (acc, item) => {
-        return {
-          ...acc,
-          [item]: ComputeDirective(item),
-        };
-      },
-      {},
-    );
+    return {
+      field: FieldDirective,
+      ...['create', 'delete', 'update', 'findOne', 'findMany', 'deleteMany', 'updateMany', 'count'].reduce(
+        (acc, item) => {
+          return {
+            ...acc,
+            [item]: ComputeDirective(item),
+          };
+        },
+        {},
+      ),
+    };
   }
 
   public select(info: GraphQLResolveInfo) {
-    const node = infoParser(info);
-    if (!node?.directivesObject.model || !node.fields) return null;
-    return node.fields ? formatFields(node.fields) : {};
+    try {
+      const node = infoParser(info);
+      if (!node?.directivesObject.model || !node.fields) return null;
+      return node.fields ? formatFields(node.fields) : {};
+    } catch (err) {
+      console.trace(err);
+      return null;
+    }
   }
 
-  private async operation(fn: String, args: Args[], info: GraphQLResolveInfo) {
+  private async operation(fn: string, args: Args[], info: GraphQLResolveInfo) {
     const node = infoParser(info);
     if (!node?.directivesObject.model || !node.fields) return null;
     const entity = getEntity(node);
-    const select = node.fields ? formatFields(node.fields) : {};
 
-    const result = await this.prismaClient[entity].findOne({
-      select,
-      ...(Args.data && node.args.data ? { data: node.args.data } : {}),
-      ...(Args.where && node.args.id ? { where: { id: node.args.id } } : {}),
-    });
-    return result;
+    try {
+      const select = node.fields ? formatFields(node.fields) : {};
+      const payload = {
+        select,
+        ...(Args.data && node.args.data ? { data: node.args.data } : {}),
+        ...(Args.where && node.args.id ? { where: { id: node.args.id } } : { where: node.args.where }),
+      };
+      if (this.log) console.log(`${entity}.${fn} start`, JSON.stringify(payload, null, 2));
+      const result = await this.prismaClient[entity][fn](payload);
+      if (this.log) console.log(`${entity}.${fn} Ok`);
+      return result;
+    } catch (err) {
+      if (this.log) console.log(`[${entity}.${fn}]: an error happened`);
+      throw err;
+    }
   }
 
-  private async operations(fn: String, args: Args[], info: GraphQLResolveInfo) {
+  private async operations(fn: string, args: Args[], info: GraphQLResolveInfo) {
     const node = infoParser(info);
     if (!node?.directivesObject.model || !node.fields) return null;
     const entity = getEntity(node);
-    const select = node.fields ? formatFields(node.fields) : {};
-    const manyArgs = pickArgs(node.args, args);
-    const result = await this.prismaClient[entity].findOne({ select, ...manyArgs });
-    return result;
+    try {
+      const select = node.fields ? formatFields(node.fields) : {};
+      const manyArgs = pickArgs(node.args, args);
+      const payload = {
+        select,
+        ...manyArgs,
+        ...(manyArgs.where ? { where: formatWhere(manyArgs.where) } : {}),
+        ...(manyArgs.orderBy ? { orderBy: formatOrderBy(manyArgs.orderBy) } : {}),
+      };
+      if (this.log) console.log(`${entity}.${fn} start`, JSON.stringify(payload, null, 2));
+      const result = await this.prismaClient[entity][fn](payload);
+      if (this.log) console.log(`${entity}.${fn} Ok`);
+      return result;
+    } catch (err) {
+      if (this.log) console.log(`[${entity}.${fn}]: an error happened`);
+      throw err;
+    }
   }
 
   public async create(info: GraphQLResolveInfo) {

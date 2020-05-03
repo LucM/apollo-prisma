@@ -1,6 +1,6 @@
 {
   "name": "apollo-prisma",
-  "version": "0.0.1-alpha4",
+  "version": "0.0.1-alpha9",
   "description": "",
   "main": "lib/index.js",
   "scripts": {
@@ -20,7 +20,7 @@
   "dependencies": {
     "apollo-server": "^2.12.0",
     "graphql": "^15.0.0",
-    "graphql-info-parser": "0.0.1-alpha4",
+    "graphql-info-parser": "0.0.1-alpha5",
     "graphql-tools": "^4.0.7"
   },
   "devDependencies": {

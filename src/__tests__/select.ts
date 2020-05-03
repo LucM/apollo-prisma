@@ -10,15 +10,15 @@ describe('Prisma-gql', () => {
     infoSpy,
     typeDefs: `
         scalar DateTime
-        directive @model(name: String) on OBJECT
-        directive @field(name: String) on FIELD_DEFINITION
+        ${apolloPrisma.directivesTypeDefs}
 
         type UserWithNoModel {
-          firstName: String
+          firstName: String!
         }
 
         type User @model {
           firstName: String @field
+          lastName: String @field(name: "last_name")
           avatar: String
           createdAt: DateTime @field(name: "dateCreation")
           posts: [Post] @field
